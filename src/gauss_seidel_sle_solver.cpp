@@ -3,6 +3,31 @@
 #include <cmath>
 #include <assert.h>
 
+#if defined(__SSE2__)
+#include <emmintrin.h>
+#endif
+
+namespace {
+
+// Products are added in index order so each partial sum matches a scalar
+// `sum += a[i] * b[i]`. The multiplies themselves run two at a time.
+double dotInOrder(const double *a, const double *b, int n) {
+    double sum = 0.0;
+    int i = 0;
+#if defined(__SSE2__) && !defined(__FMA__)
+    for (; i + 2 <= n; i += 2) {
+        const __m128d prod = _mm_mul_pd(_mm_loadu_pd(a + i), _mm_loadu_pd(b + i));
+        sum += _mm_cvtsd_f64(prod);
+        sum += _mm_cvtsd_f64(_mm_unpackhi_pd(prod, prod));
+    }
+#endif
+    for (; i < n; ++i)
+        sum += a[i] * b[i];
+    return sum;
+}
+
+}
+
 atg_scs::GaussSeidelSleSolver::GaussSeidelSleSolver()
     : atg_scs::SleSolver(true)
 {
@@ -94,21 +119,18 @@ double atg_scs::GaussSeidelSleSolver::solveIteration(
 {
     double maxDifference = 0.0;
     const int n = k->getHeight();
+    const double *kNextData = k_next->packed();
+    const double *kData = k->packed();
 
     for (int i = 0; i < n; ++i) {
-        double s0 = 0.0, s1 = 0.0;
-        for (int j = 0; j < i; ++j) {
-            s0 += left.get(j, i) * k_next->get(0, j);
-        }
-
-        for (int j = i + 1; j < n; ++j) {
-            s1 += left.get(j, i) * k->get(0, j);
-        }
+        const double *row = left.row(i);
+        const double s0 = dotInOrder(row, kNextData, i);
+        const double s1 = dotInOrder(row + i + 1, kData + i + 1, n - i - 1);
 
         const double k_next_i =
-            (1 / left.get(i, i)) * (right.get(0, i) - s0 - s1);
+            (1 / row[i]) * (right.packed()[i] - s0 - s1);
 
-        const double min_k = std::fmax(1E-3, k->get(0, i));
+        const double min_k = std::fmax(1E-3, kData[i]);
         const double delta = (std::abs(k_next_i) - min_k) / min_k;
         maxDifference = (delta > maxDifference)
             ? delta
@@ -129,19 +151,16 @@ double atg_scs::GaussSeidelSleSolver::solveIteration(
 {
     double maxDifference = 0.0;
     const int n = k->getHeight();
+    const double *kNextData = k_next->packed();
+    const double *kData = k->packed();
 
     for (int i = 0; i < n; ++i) {
-        double s0 = 0.0, s1 = 0.0;
-        for (int j = 0; j < i; ++j) {
-            s0 += left.get(j, i) * k_next->get(0, j);
-        }
-
-        for (int j = i + 1; j < n; ++j) {
-            s1 += left.get(j, i) * k->get(0, j);
-        }
+        const double *row = left.row(i);
+        const double s0 = dotInOrder(row, kNextData, i);
+        const double s1 = dotInOrder(row + i + 1, kData + i + 1, n - i - 1);
 
         const double k_next_i =
-            (1 / left.get(i, i)) * (right.get(0, i) - s0 - s1);
+            (1 / row[i]) * (right.packed()[i] - s0 - s1);
 
         const double limitMin = limits.get(0, i);
         const double limitMax = limits.get(1, i);

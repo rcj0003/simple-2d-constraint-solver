@@ -39,6 +39,21 @@ namespace atg_scs {
                 return m_matrix[row][column];
             }
 
+            // Contiguous columns of one row. Packed storage is row-major.
+            scs_force_inline double *row(int r) {
+                assert(r >= 0 && r < m_height);
+                return m_matrix[r];
+            }
+
+            scs_force_inline const double *row(int r) const {
+                assert(r >= 0 && r < m_height);
+                return m_matrix[r];
+            }
+
+            // Valid as a flat column when width is 1: element i is packed()[i].
+            scs_force_inline double *packed() { return m_data; }
+            scs_force_inline const double *packed() const { return m_data; }
+
             void set(Matrix *reference);
 
             void multiply(Matrix &b, Matrix *target);

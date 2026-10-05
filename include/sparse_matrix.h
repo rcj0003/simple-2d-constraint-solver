@@ -137,31 +137,71 @@ namespace atg_scs {
                 }
             }
 
+            // Keep each product in the same left-to-right order as a scalar dot.
+            // Auto-vectorizing this nest changes that order and fails a bitwise compare.
+#if defined(__GNUC__) && !defined(__clang__)
+            __attribute__((optimize("no-tree-vectorize")))
+#endif
             void multiplyTranspose(const SparseMatrix<T_Stride, T_Entries> &b_T, Matrix *target) const {
                 assert(m_width == b_T.m_width);
 
                 target->initialize(b_T.m_height, m_height);
 
                 for (int i = 0; i < m_height; ++i) {
-                    for (int j = 0; j < b_T.m_height; ++j) {
-                        double dot = 0;
+                    const double *rowI = m_matrix[i];
+                    const uint8_t *blocksI = m_blockData + i * T_Entries;
+                    double *targetRow = target->row(i);
+
+                    int j = 0;
+                    for (; j + 1 < b_T.m_height; j += 2) {
+                        double dot0 = 0.0;
+                        double dot1 = 0.0;
+                        const double *rowJ0 = b_T.m_matrix[j];
+                        const double *rowJ1 = b_T.m_matrix[j + 1];
+                        const uint8_t *blocksJ0 = b_T.m_blockData + j * T_Entries;
+                        const uint8_t *blocksJ1 = b_T.m_blockData + (j + 1) * T_Entries;
+
                         for (int k = 0; k < T_Entries; ++k) {
-                            const uint8_t block0 = m_blockData[i * T_Entries + k];
+                            const uint8_t block0 = blocksI[k];
                             if (block0 == 0xFF) continue;
 
+                            const int offK = k * T_Stride;
                             for (int l = 0; l < T_Entries; ++l) {
-                                const uint8_t block1 = b_T.m_blockData[j * T_Entries + l];
-                                if (block0 == block1) {
-                                    for (int m = 0; m < T_Stride; ++m) {
-                                        dot +=
-                                            m_matrix[i][k * T_Stride + m]
-                                            * b_T.m_matrix[j][l * T_Stride + m];
-                                    }
+                                const int offL = l * T_Stride;
+                                if (block0 == blocksJ0[l]) {
+                                    for (int m = 0; m < T_Stride; ++m)
+                                        dot0 += rowI[offK + m] * rowJ0[offL + m];
+                                }
+                                if (block0 == blocksJ1[l]) {
+                                    for (int m = 0; m < T_Stride; ++m)
+                                        dot1 += rowI[offK + m] * rowJ1[offL + m];
                                 }
                             }
                         }
 
-                        target->set(j, i, dot);
+                        targetRow[j] = dot0;
+                        targetRow[j + 1] = dot1;
+                    }
+
+                    for (; j < b_T.m_height; ++j) {
+                        double dot = 0.0;
+                        const double *rowJ = b_T.m_matrix[j];
+                        const uint8_t *blocksJ = b_T.m_blockData + j * T_Entries;
+                        for (int k = 0; k < T_Entries; ++k) {
+                            const uint8_t block0 = blocksI[k];
+                            if (block0 == 0xFF) continue;
+
+                            const int offK = k * T_Stride;
+                            for (int l = 0; l < T_Entries; ++l) {
+                                if (block0 == blocksJ[l]) {
+                                    const int offL = l * T_Stride;
+                                    for (int m = 0; m < T_Stride; ++m)
+                                        dot += rowI[offK + m] * rowJ[offL + m];
+                                }
+                            }
+                        }
+
+                        targetRow[j] = dot;
                     }
                 }
             }

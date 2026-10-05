@@ -27,6 +27,11 @@ atg_scs::Matrix::~Matrix() {
 void atg_scs::Matrix::initialize(int width, int height, double value) {
     resize(width, height);
 
+    if (value == 0.0) {
+        memset(m_data, 0, sizeof(double) * static_cast<size_t>(width) * static_cast<size_t>(height));
+        return;
+    }
+
     for (int i = 0; i < height; ++i) {
         for (int j = 0; j < width; ++j) {
             m_matrix[i][j] = value;

@@ -16,9 +16,7 @@ namespace atg_scs {
             virtual void process(double dt, int steps = 1);
 
         protected:
-            void processConstraints(
-                    long long *evalTime,
-                    long long *solveTime);
+            void processConstraints();
 
         protected:
             OdeSolver *m_odeSolver;

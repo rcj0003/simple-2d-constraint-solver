@@ -21,10 +21,7 @@ namespace atg_scs {
 
         protected:
             void propagateResults();
-            void processConstraints(
-                    double dt,
-                    long long *evalTime,
-                    long long *solveTime);
+            void processConstraints(double dt);
 
         protected:
             NsvOdeSolver m_odeSolver;

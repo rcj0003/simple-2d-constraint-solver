@@ -1,6 +1,5 @@
 #include "../include/optimized_nsv_rigid_body_system.h"
 
-#include <chrono>
 #include <cmath>
 
 atg_scs::OptimizedNsvRigidBodySystem::OptimizedNsvRigidBodySystem() {
@@ -35,12 +34,6 @@ void atg_scs::OptimizedNsvRigidBodySystem::initialize(SleSolver *sleSolver) {
 }
 
 void atg_scs::OptimizedNsvRigidBodySystem::process(double dt, int steps) {
-    long long
-        odeSolveTime = 0,
-        constraintSolveTime = 0,
-        forceEvalTime = 0,
-        constraintEvalTime = 0;
-
     populateSystemState();
     populateMassMatrices(&m_iv.M, &m_iv.M_inv);
 
@@ -49,25 +42,9 @@ void atg_scs::OptimizedNsvRigidBodySystem::process(double dt, int steps) {
 
         while (true) {
             const bool done = m_odeSolver.step(&m_state);
-
-            long long evalTime = 0, solveTime = 0;
-
-            auto s0 = std::chrono::steady_clock::now();
             processForces();
-            auto s1 = std::chrono::steady_clock::now();
-
-            processConstraints(dt / steps, &evalTime, &solveTime);
-
-            auto s2 = std::chrono::steady_clock::now();
+            processConstraints(dt / steps);
             m_odeSolver.solve(&m_state);
-            auto s3 = std::chrono::steady_clock::now();
-
-            constraintSolveTime += solveTime;
-            constraintEvalTime += evalTime;
-            odeSolveTime +=
-                std::chrono::duration_cast<std::chrono::microseconds>(s3 - s2).count();
-            forceEvalTime +=
-                std::chrono::duration_cast<std::chrono::microseconds>(s1 - s0).count();
 
             if (done) break;
         }
@@ -76,13 +53,6 @@ void atg_scs::OptimizedNsvRigidBodySystem::process(double dt, int steps) {
     }
 
     propagateResults();
-
-    m_odeSolveMicroseconds[m_frameIndex] = odeSolveTime;
-    m_constraintSolveMicroseconds[m_frameIndex] = constraintSolveTime;
-    m_forceEvalMicroseconds[m_frameIndex] = forceEvalTime;
-    m_constraintEvalMicroseconds[m_frameIndex] = constraintEvalTime;
-    m_frameIndex = (m_frameIndex + 1) % ProfilingSamples;
-
     m_t += dt;
 }
 
@@ -113,16 +83,7 @@ void atg_scs::OptimizedNsvRigidBodySystem::propagateResults() {
     }
 }
 
-void atg_scs::OptimizedNsvRigidBodySystem::processConstraints(
-        double dt,
-        long long *evalTime,
-        long long *solveTime)
-{
-    *evalTime = -1;
-    *solveTime = -1;
-
-    auto s0 = std::chrono::steady_clock::now();
-
+void atg_scs::OptimizedNsvRigidBodySystem::processConstraints(double dt) {
     const int n = getRigidBodyCount();
     const int m_f = getFullConstraintCount();
     const int m = getConstraintCount();
@@ -193,8 +154,6 @@ void atg_scs::OptimizedNsvRigidBodySystem::processConstraints(
     m_iv.reg1.add(m_iv.b_err, &m_iv.reg0);
     m_iv.reg0.negate(&m_iv.right);
 
-    auto s1 = std::chrono::steady_clock::now();
-
     bool solvable = false;
     if (!m_sleSolver->supportsLimits()) {
         solvable =
@@ -217,8 +176,6 @@ void atg_scs::OptimizedNsvRigidBodySystem::processConstraints(
     }
 
     assert(solvable);
-
-    auto s2 = std::chrono::steady_clock::now();
 
     // Constraint force derivation
     //  R = J_T * lambda_scale
@@ -265,11 +222,4 @@ void atg_scs::OptimizedNsvRigidBodySystem::processConstraints(
         m_state.a_y[i] *= invMass;
         m_state.a_theta[i] *= invInertia;
     }
-
-    auto s3 = std::chrono::steady_clock::now();
-
-    *evalTime =
-        std::chrono::duration_cast<std::chrono::microseconds>(s1 - s0 + s3 - s2).count();
-    *solveTime =
-        std::chrono::duration_cast<std::chrono::microseconds>(s2 - s1).count();
 }
